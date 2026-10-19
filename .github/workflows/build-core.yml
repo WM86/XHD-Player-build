@@ -42,6 +42,25 @@ jobs:
           Get-ChildItem work | Select-Object Name
           if (-not (Test-Path work/XHD-Player-source/tools/build_core.py)) { throw "source tree incomplete" }
 
+      - name: Fill nested submodules the source zip left empty
+        shell: pwsh
+        run: |
+          function Get-Pinned($url, $sha, $dest) {
+            $count = 0
+            if (Test-Path $dest) { $count = (Get-ChildItem $dest -Force | Measure-Object).Count }
+            if ($count -gt 0) { Write-Host "present: $dest"; return }
+            New-Item -ItemType Directory -Force $dest | Out-Null
+            git -C $dest init -q
+            git -C $dest remote add origin $url 2>$null
+            git -C $dest fetch -q --depth 1 origin $sha
+            if ($LASTEXITCODE -ne 0) { throw "fetch failed: $url @ $sha" }
+            git -C $dest checkout -q FETCH_HEAD
+            Write-Host "filled: $dest ($((Get-ChildItem $dest -Force | Measure-Object).Count) entries)"
+          }
+          $ext = "work/XHD-Player-source/reference/shadPS4/externals"
+          Get-Pinned "https://github.com/zyantific/zycore-c.git" "38d4f0285e6157ee840ea82a9b90aba71c8a705d" "$ext/zydis/dependencies/zycore"
+          Get-Pinned "https://github.com/KhronosGroup/SPIRV-Headers.git" "2acb319af38d43be3ea76bfabf3998e5281d8d12" "$ext/sirit/externals/SPIRV-Headers"
+
       - name: Fetch zig 0.15.2
         shell: pwsh
         run: |
