@@ -1,0 +1,86 @@
+name: build-core
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: XHD-Player release tag that carries the source zip
+        required: true
+        default: v0.1.1
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch upstream source zip
+        shell: pwsh
+        run: |
+          $tag = "${{ inputs.tag }}"
+          $url = "https://github.com/kijwt133/XHD-Player/releases/download/$tag/XHD-Player-source-$tag.zip"
+          Write-Host "GET $url"
+          curl.exe -L --retry 3 --retry-delay 5 -o source.zip $url
+          if (-not (Test-Path source.zip)) { throw "download failed" }
+          Get-Item source.zip | Format-List Name, Length
+
+      - name: Unpack source
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          [System.IO.Compression.ZipFile]::ExtractToDirectory("$PWD/source.zip", "$PWD/work")
+          Get-ChildItem work | Select-Object Name
+          Test-Path work/XHD-Player-source/tools/build_core.py
+
+      - name: Fetch zig 0.15.2
+        shell: pwsh
+        run: |
+          curl.exe -L --retry 3 --retry-delay 5 -o zig.zip https://ziglang.org/download/0.15.2/zig-x86_64-windows-0.15.2.zip
+          New-Item -ItemType Directory -Force work/native/toolchain | Out-Null
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          [System.IO.Compression.ZipFile]::ExtractToDirectory("$PWD/zig.zip", "$PWD/work/native/toolchain")
+          Test-Path work/native/toolchain/zig-x86_64-windows-0.15.2/zig.exe
+
+      - name: Install cmake and ninja into the source tree
+        shell: pwsh
+        run: |
+          $target = "work/XHD-Player-source/toolchain/python-packages"
+          python -m pip install --no-cache-dir --target $target cmake ninja
+          New-Item -ItemType Directory -Force "$target/bin" | Out-Null
+          foreach ($tool in @('ninja.exe', 'cmake.exe')) {
+            if (-not (Test-Path "$target/bin/$tool")) {
+              $found = Get-ChildItem $target -Recurse -Filter $tool | Select-Object -First 1
+              if (-not $found) { throw "$tool not found after pip install" }
+              Copy-Item $found.FullName "$target/bin/$tool"
+            }
+          }
+          # build_core.py looks for cmake at cmake/data/bin, keep that layout too
+          if (-not (Test-Path "$target/cmake/data/bin/cmake.exe")) {
+            $c = Get-ChildItem $target -Recurse -Filter cmake.exe | Select-Object -First 1
+            if ($c) { New-Item -ItemType Directory -Force "$target/cmake/data/bin" | Out-Null
+                      Copy-Item $c.FullName "$target/cmake/data/bin/cmake.exe" }
+          }
+          Get-ChildItem "$target/bin"
+
+      - name: Build core
+        shell: pwsh
+        working-directory: work/XHD-Player-source
+        run: |
+          python tools/build_core.py --build --jobs 4
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "=== configure tail ==="
+            if (Test-Path evidence/configure-core.log) { Get-Content evidence/configure-core.log -Tail 120 }
+            Write-Host "=== build tail ==="
+            if (Test-Path evidence/build-core.log) { Get-Content evidence/build-core.log -Tail 200 }
+            throw "build failed with $LASTEXITCODE"
+          }
+          Get-Item build/core/XHD-Runtime.exe | Format-List Name, Length
+
+      - name: Upload executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: XHD-Runtime
+          path: work/XHD-Player-source/build/core/XHD-Runtime.exe
+          if-no-files-found: error
+          retention-days: 14
