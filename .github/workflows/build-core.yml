@@ -104,6 +104,12 @@ jobs:
         shell: pwsh
         run: python scripts/patch_libpng_zig.py work/XHD-Player-source
 
+      - name: Make exposure readbacks asynchronous
+        shell: pwsh
+        run: |
+          python scripts/patch_exposure_deferred.py work/XHD-Player-source
+          python scripts/relax_core_patch_check.py work/XHD-Player-source
+
       - name: Build core
         shell: pwsh
         working-directory: work/XHD-Player-source
