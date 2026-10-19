@@ -80,13 +80,24 @@ jobs:
           New-Item -ItemType Directory -Force evidence | Out-Null
           python tools/build_core.py --build --jobs 4
           if ($LASTEXITCODE -ne 0) {
-            Write-Host "=== configure tail ==="
-            if (Test-Path evidence/configure-core.log) { Get-Content evidence/configure-core.log -Tail 120 }
-            Write-Host "=== build tail ==="
-            if (Test-Path evidence/build-core.log) { Get-Content evidence/build-core.log -Tail 200 }
+            if (Test-Path evidence/configure-core.log) {
+              Write-Host "=== CMake errors ==="
+              Select-String -Path evidence/configure-core.log -Pattern 'CMake Error' -Context 0,14 |
+                ForEach-Object { $_.Line; $_.Context.PostContext }
+            }
+            if (Test-Path evidence/build-core.log) { Get-Content evidence/build-core.log -Tail 100 }
             throw "build failed with $LASTEXITCODE"
           }
           Get-Item build/core/XHD-Runtime.exe | Format-List Name, Length
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: work/XHD-Player-source/evidence/*.log
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Upload executable
         uses: actions/upload-artifact@v4
