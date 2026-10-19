@@ -99,6 +99,10 @@ jobs:
           }
           Get-ChildItem "$target/bin"
 
+      - name: Patch libpng for the zig compiler wrapper
+        shell: pwsh
+        run: python scripts/patch_libpng_zig.py work/XHD-Player-source
+
       - name: Build core
         shell: pwsh
         working-directory: work/XHD-Player-source

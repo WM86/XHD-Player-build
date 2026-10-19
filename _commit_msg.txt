@@ -1,0 +1,8 @@
+修复 libpng 在 zig 工具链下的预处理调用
+
+CMAKE_C_COMPILER 是 zig.exe，真正的编译器参数在 CMAKE_C_COMPILER_ARG1=cc 里；
+libpng 的 genout.cmake.in 只拼 ${CMAKE_C_COMPILER}，于是执行了裸的 zig -E，
+构建卡在 Generating pnglibconf.out。只改这个模板，把 ARG1 一起带上。
+
+同一脚本顺带扫描 externals 里其余裸用 ${CMAKE_C_COMPILER} 的位置并打印，
+省下一轮 15 分钟的 configure 才能发现下一个。
