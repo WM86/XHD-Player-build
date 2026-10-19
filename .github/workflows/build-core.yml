@@ -19,21 +19,28 @@ jobs:
 
       - name: Fetch upstream source zip
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           $tag = "${{ inputs.tag }}"
-          $url = "https://github.com/kijwt133/XHD-Player/releases/download/$tag/XHD-Player-source-$tag.zip"
-          Write-Host "GET $url"
-          curl.exe -L --retry 3 --retry-delay 5 -o source.zip $url
-          if (-not (Test-Path source.zip)) { throw "download failed" }
-          Get-Item source.zip | Format-List Name, Length
+          New-Item -ItemType Directory -Force dl | Out-Null
+          gh release download $tag -R kijwt133/XHD-Player -p "XHD-Player-source-*.zip" -D dl --clobber
+          $zip = Get-ChildItem dl -Filter *.zip | Select-Object -First 1
+          if (-not $zip) { throw "source zip not downloaded" }
+          Write-Host "$($zip.Name) $($zip.Length) bytes"
+          $head = [System.IO.File]::ReadAllBytes($zip.FullName)[0..3]
+          Write-Host ("magic: " + [System.Text.Encoding]::ASCII.GetString($head))
+          if ($zip.Length -lt 100MB) { throw "zip looks truncated" }
+          Copy-Item $zip.FullName source.zip
 
       - name: Unpack source
         shell: pwsh
         run: |
-          Add-Type -AssemblyName System.IO.Compression.FileSystem
-          [System.IO.Compression.ZipFile]::ExtractToDirectory("$PWD/source.zip", "$PWD/work")
+          New-Item -ItemType Directory -Force work | Out-Null
+          tar.exe -xf source.zip -C work
+          if ($LASTEXITCODE -ne 0) { throw "tar failed: $LASTEXITCODE" }
           Get-ChildItem work | Select-Object Name
-          Test-Path work/XHD-Player-source/tools/build_core.py
+          if (-not (Test-Path work/XHD-Player-source/tools/build_core.py)) { throw "source tree incomplete" }
 
       - name: Fetch zig 0.15.2
         shell: pwsh
