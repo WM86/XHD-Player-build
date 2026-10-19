@@ -42,7 +42,7 @@ jobs:
           Get-ChildItem work | Select-Object Name
           if (-not (Test-Path work/XHD-Player-source/tools/build_core.py)) { throw "source tree incomplete" }
 
-      - name: Fill nested submodules the source zip left empty
+      - name: Fill submodules the source zip left out
         shell: pwsh
         run: |
           function Get-Pinned($url, $sha, $dest) {
@@ -55,9 +55,17 @@ jobs:
             git -C $dest fetch -q --depth 1 origin $sha
             if ($LASTEXITCODE -ne 0) { throw "fetch failed: $url @ $sha" }
             git -C $dest checkout -q FETCH_HEAD
-            Write-Host "filled: $dest ($((Get-ChildItem $dest -Force | Measure-Object).Count) entries)"
+            Write-Host "filled: $dest"
           }
           $ext = "work/XHD-Player-source/reference/shadPS4/externals"
+          Get-Pinned "https://github.com/zyantific/zydis.git" "120e0e705f8e3b507dc49377ac2879979f0d545c" "$ext/zydis"
+          Get-Pinned "https://github.com/shadps4-emu/sirit.git" "c58f4d441cfdb6905d011a906704716833485486" "$ext/sirit"
+          Get-Pinned "https://github.com/HowardHinnant/date.git" "a45ea7c17b4a7f320e199b71436074bd624c9e15" "$ext/date"
+          Get-Pinned "https://github.com/shadps4-emu/ext-ffmpeg-core.git" "94dde08c8a9e4271a93a2a7e4159e9fb05d30c0a" "$ext/ffmpeg-core"
+          Get-Pinned "https://github.com/shadps4-emu/ext-discord-rpc.git" "19f66e6dcabb2268965f453db9e5774ede43238f" "$ext/discord-rpc"
+          Get-Pinned "https://github.com/jiixyj/epoll-shim.git" "18159584bb3d17e601b9315a7398ace018251bdc" "$ext/epoll-shim"
+          Get-Pinned "https://github.com/shadexternals/mesa-kosmickrisp" "af7dd0a35c071cecbfff32662675641d19e8e4db" "$ext/mesa-kosmickrisp"
+          Get-Pinned "https://github.com/KhronosGroup/Vulkan-Loader" "466498bc64eb77955c3b782f0127520548224de0" "$ext/vulkan-loader"
           Get-Pinned "https://github.com/zyantific/zycore-c.git" "38d4f0285e6157ee840ea82a9b90aba71c8a705d" "$ext/zydis/dependencies/zycore"
           Get-Pinned "https://github.com/KhronosGroup/SPIRV-Headers.git" "2acb319af38d43be3ea76bfabf3998e5281d8d12" "$ext/sirit/externals/SPIRV-Headers"
 
