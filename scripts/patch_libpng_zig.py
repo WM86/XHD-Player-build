@@ -1,14 +1,19 @@
-"""Make libpng's genout.cmake honour CMAKE_C_COMPILER_ARG1.
+"""Force libpng to build against its prebuilt pnglibconf.h under the zig toolchain.
 
-The zig toolchain is configured as CMAKE_C_COMPILER=zig.exe with
-CMAKE_C_COMPILER_ARG1=cc, so every compiler invocation must be "zig cc ...".
-libpng's scripts/cmake/genout.cmake.in builds the command from
-${CMAKE_C_COMPILER} alone and therefore runs a bare "zig -E", which stops the
-build at "Generating pnglibconf.out".  Inject ARG1 into that template only.
+libpng normally generates pnglibconf.h at build time by running the C
+preprocessor and then a pile of awk scripts (options.awk, dfn.awk,
+checksym.awk).  With the zig toolchain CMAKE_C_COMPILER is zig.exe and the
+real compiler lives in CMAKE_C_COMPILER_ARG1=cc, so the template expands to a
+bare "zig -E" and the build dies at "Generating pnglibconf.out".  The awk
+generators are also a second hazard on Windows (line endings, path separators).
 
-After patching, it prints (read only) every remaining place under externals
-that interpolates ${CMAKE_C_COMPILER} without ARG1, so the next failure does
-not need another 15 minute configure to discover.
+libpng ships an officially supported fallback for exactly this situation: when
+no awk is available it copies scripts/pnglibconf.h.prebuilt instead
+(CMakeLists.txt: "if(NOT AWK OR (ANDROID OR IOS))").  That prebuilt header is
+the full feature set, which is what shadPS4 needs.
+
+So blank out the awk probe and let libpng take the prebuilt path.  Only that
+one line is touched, and only inside the generated build tree.
 """
 
 import re
@@ -17,64 +22,36 @@ from pathlib import Path
 
 ROOT = Path(sys.argv[1]) if len(sys.argv) > 1 else Path('work/XHD-Player-source')
 EXT = ROOT / 'reference/shadPS4/externals'
-TEMPLATE = EXT / 'libpng/scripts/cmake/genout.cmake.in'
+LIBS = ('libpng', 'ext-libpng')
 
-ORIGINAL = 'set(CMAKE_C_COMPILER "@CMAKE_C_COMPILER@")\n'
-PATCHED = (
-    'if(NOT "@CMAKE_C_COMPILER_ARG1@" STREQUAL "")\n'
-    '  set(CMAKE_C_COMPILER "@CMAKE_C_COMPILER@" "@CMAKE_C_COMPILER_ARG1@")\n'
-    'else()\n'
-    '  set(CMAKE_C_COMPILER "@CMAKE_C_COMPILER@")\n'
-    'endif()\n'
-)
-
-USES = re.compile(r'\$\{CMAKE_C_COMPILER\}')
-NAMES = ('CMakeLists.txt',)
-SUFFIXES = ('.cmake', '.cmake.in')
+PROBE = 'find_program(AWK NAMES gawk nawk awk)'
+REPLACEMENT = 'set(AWK "AWK-NOTFOUND")  # zig toolchain: use prebuilt pnglibconf.h'
 
 
-def patch_template():
-    if not TEMPLATE.is_file():
-        raise SystemExit('missing ' + str(TEMPLATE))
-    text = TEMPLATE.read_text(encoding='utf-8')
-    if PATCHED in text:
-        print('libpng genout template already patched')
-        return
-    if text.count(ORIGINAL) != 1:
-        found = re.findall(r'^.*CMAKE_C_COMPILER.*$', text, re.M)
-        raise SystemExit('unexpected genout template, C compiler lines: ' + repr(found))
-    TEMPLATE.write_text(text.replace(ORIGINAL, PATCHED), encoding='utf-8')
-    print('patched ' + str(TEMPLATE))
-
-
-def scan():
-    hits = []
-    for path in EXT.rglob('*'):
-        if not path.is_file():
-            continue
-        if path.name not in NAMES and not path.name.endswith(SUFFIXES):
-            continue
-        if '.git' in path.parts:
-            continue
-        try:
-            text = path.read_text(encoding='utf-8', errors='replace')
-        except OSError:
-            continue
-        if not USES.search(text):
-            continue
-        if 'CMAKE_C_COMPILER_ARG1' in text:
-            continue
-        for number, line in enumerate(text.splitlines(), 1):
-            if USES.search(line):
-                hits.append('%s:%d: %s' % (path.relative_to(EXT).as_posix(), number, line.strip()))
-    print('[scan] %d bare ${CMAKE_C_COMPILER} use(s) outside libpng patch scope' % len(hits))
-    for hit in hits[:20]:
-        print('[scan] ' + hit)
+def find_libpng():
+    for name in LIBS:
+        candidate = EXT / name
+        if (candidate / 'CMakeLists.txt').is_file():
+            return candidate
+    raise SystemExit('libpng not found under ' + str(EXT))
 
 
 def main():
-    patch_template()
-    scan()
+    lib = find_libpng()
+    prebuilt = lib / 'scripts/pnglibconf.h.prebuilt'
+    if not prebuilt.is_file():
+        raise SystemExit('missing ' + str(prebuilt) + ' - cannot take the prebuilt path')
+    cmakelists = lib / 'CMakeLists.txt'
+    text = cmakelists.read_text(encoding='utf-8', errors='replace')
+    if REPLACEMENT in text:
+        print('libpng already set to the prebuilt configuration')
+        return 0
+    count = text.count(PROBE)
+    if count != 1:
+        found = re.findall(r'^.*\bAWK\b.*$', text, re.M)
+        raise SystemExit('unexpected libpng CMakeLists (probe x%d): %r' % (count, found[:8]))
+    cmakelists.write_text(text.replace(PROBE, REPLACEMENT), encoding='utf-8')
+    print('patched ' + str(cmakelists))
     return 0
 
 
